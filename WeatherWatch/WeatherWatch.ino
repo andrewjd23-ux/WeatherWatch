@@ -72,6 +72,7 @@ float pressureHpa = NAN;
 float voltage = NAN;
 float batteryPct = NAN;
 float snr = NAN;
+float rssi = NAN;
 
 String linkStatus = "Booting";
 String radioStatus = "No frames yet";
@@ -85,8 +86,11 @@ void readMeshFrames();
 void handleFrame(uint8_t* p, uint16_t len);
 void parseStrings(uint8_t* p, uint16_t len);
 void considerString(String s);
+bool looksLikeNodeName(const String& s);
+bool looksLikeMessageText(const String& s);
 void scanFloats(uint8_t* p, uint16_t len);
 void scanInts(uint8_t* p, uint16_t len);
+void scanRadioMetrics(uint8_t* p, uint16_t len);
 void pageStatus();
 void pageWeather();
 void pagePower();
@@ -234,6 +238,7 @@ void handleFrame(uint8_t* p, uint16_t len) {
     parseStrings(p, len);
     scanFloats(p, len);
     scanInts(p, len);
+    scanRadioMetrics(p, len);
   }
 
   if (p[0] == 0x12) {
@@ -270,21 +275,57 @@ void considerString(String s) {
   if (s.indexOf("Midnight Moses") >= 0) ownNodeName = "Midnight Moses";
   if (s.indexOf("FUNK") >= 0) ownNodeName = "Midnight Moses";
 
-  if (s.indexOf("LongFast") >= 0 || s.indexOf("LONG_FAST") >= 0) {
-    lastMessage = "LongFast activity";
+  if (looksLikeMessageText(s)) {
+    lastMessage = s.substring(0, 40);
+    return;
   }
 
   // Node names and user strings often appear as readable snippets in 0x22/0x12 frames.
-  if (s.startsWith("!") || s.length() > 4) {
-    if (s.indexOf("proto") < 0 &&
-        s.indexOf("WeatherWatch") < 0 &&
-        s.indexOf("holymoses") < 0 &&
-        s.indexOf("mqtt") < 0 &&
-        s.indexOf("meshtastic.pool") < 0) {
-      lastNodeName = s;
-      nodesSeen++;
-    }
+  // Do not let ordinary message prose become the latest node ident.
+  if (looksLikeNodeName(s)) {
+    lastNodeName = s;
+    nodesSeen++;
   }
+}
+
+bool looksLikeMessageText(const String& s) {
+  if (s.indexOf("LongFast") >= 0 || s.indexOf("LONG_FAST") >= 0) return true;
+
+  // Message prose often contains spaces/punctuation and is usually not a compact node name.
+  int spaces = 0;
+  for (uint16_t i = 0; i < s.length(); i++) {
+    if (s[i] == ' ') spaces++;
+  }
+
+  if (spaces >= 2) return true;
+  if (s.length() > 24 && spaces >= 1) return true;
+
+  return false;
+}
+
+bool looksLikeNodeName(const String& s) {
+  if (s.length() < 3 || s.length() > 24) return false;
+  if (s.startsWith("!")) return false;
+
+  if (s.indexOf("proto") >= 0) return false;
+  if (s.indexOf("WeatherWatch") >= 0) return false;
+  if (s.indexOf("holymoses") >= 0) return false;
+  if (s.indexOf("mqtt") >= 0) return false;
+  if (s.indexOf("meshtastic.pool") >= 0) return false;
+  if (s.indexOf("/") >= 0) return false;
+
+  int spaces = 0;
+  int letters = 0;
+  for (uint16_t i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == ' ') spaces++;
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')) letters++;
+  }
+
+  if (letters < 2) return false;
+  if (spaces > 1) return false;
+
+  return true;
 }
 
 float readFloatLE(const uint8_t* p) {
@@ -340,6 +381,27 @@ void scanInts(uint8_t* p, uint16_t len) {
   for (uint16_t i = 0; i < len; i++) {
     if (p[i] > 0 && p[i] <= 100) {
       batteryPct = p[i];
+    }
+  }
+}
+
+void scanRadioMetrics(uint8_t* p, uint16_t len) {
+  // MeshPacket radio metrics are fixed32 floats in newer frames. In captures,
+  // tag 0x45 often carries a plausible negative dB value. This is labelled SNR
+  // in the UI for now, but may actually be RSSI on some firmware frames.
+  for (uint16_t i = 0; i + 5 <= len; i++) {
+    uint8_t tag = p[i];
+    float f = readFloatLE(&p[i + 1]);
+
+    if (!isfinite(f)) continue;
+
+    if (tag == 0x45 || tag == 0x4D || tag == 0x55) {
+      if (f >= -30.0 && f <= 30.0) {
+        snr = f;
+      } else if (f >= -140.0 && f <= -20.0) {
+        rssi = f;
+        if (isnan(snr)) snr = f;
+      }
     }
   }
 }
@@ -487,7 +549,8 @@ void pageNodes() {
 
 void pageRadio() {
   bigTitle("/", "RADIO LINK");
-  smallLine(86, "Board link", meshConnected ? "TCP OK" : "TCP DOWN");
-  smallLine(108, "Mesh SNR", f1(snr, " dB"));
-  smallLine(130, "Heltec IP", "192.168.4.2");
+  smallLine(82, "Board link", meshConnected ? "TCP OK" : "TCP DOWN");
+  smallLine(104, "Mesh metric", f1(snr, " dB"));
+  smallLine(126, "RSSI", f1(rssi, " dBm"));
+  smallLine(148, "Heltec IP", "192.168.4.2");
 }
