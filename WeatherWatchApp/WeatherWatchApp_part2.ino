@@ -208,57 +208,43 @@ float readFloatLE(const uint8_t* p) {
 // -----------------------------------------------------------------------------
 
 void scanTelemetry(uint8_t* p, uint16_t len) {
-  for (uint16_t i = 0; i + 2 < len; i++) {
-    if (p[i] == 0x1A) {
-      uint16_t blockLen = p[i + 1];
+  // Looser scan for EnvironmentMetrics float fields anywhere in telemetry-ish frames.
+  // temperature = 0x0D
+  // humidity    = 0x15
+  // pressure    = 0x1D
 
-      if (blockLen > 0 && blockLen <= 80 && i + 2 + blockLen <= len) {
-        scanEnvironmentBlock(p, i + 2, blockLen, len);
-      }
-    }
-  }
-}
+  float t = NAN;
+  float h = NAN;
+  float pr = NAN;
 
-void scanEnvironmentBlock(uint8_t* p, uint16_t start, uint16_t blockLen, uint16_t frameLen) {
-  uint16_t end = start + blockLen;
-
-  if (end > frameLen) return;
-
-  float candidateTemp = NAN;
-  float candidateHum = NAN;
-  float candidatePressure = NAN;
-
-  for (uint16_t i = start; i + 5 <= end; i++) {
+  for (uint16_t i = 0; i + 5 <= len; i++) {
     uint8_t tag = p[i];
-
     float f = readFloatLE(&p[i + 1]);
 
     if (!isfinite(f)) continue;
 
-    if (tag == 0x0D && f > -30.0 && f < 60.0) {
-      candidateTemp = f;
+    if (tag == 0x0D && f > -30.0 && f < 60.0 && fabs(f) > 0.1) {
+      t = f;
     }
 
-    if (tag == 0x15 && f >= 0.0 && f <= 100.0) {
-      candidateHum = f;
+    if (tag == 0x15 && f >= 1.0 && f <= 100.0) {
+      // Avoid taking 4.3V as humidity by preferring humidity-looking values.
+      if (f > 10.0) h = f;
     }
 
     if (tag == 0x1D && f > 850.0 && f < 1100.0) {
-      candidatePressure = f;
+      pr = f;
     }
   }
 
-  int good = 0;
+  if (!isnan(t)) temperatureC = t;
+  if (!isnan(h)) humidityPct = h;
+  if (!isnan(pr)) pressureHpa = pr;
+}
 
-  if (!isnan(candidateTemp)) good++;
-  if (!isnan(candidateHum)) good++;
-  if (!isnan(candidatePressure)) good++;
-
-  if (good >= 2) {
-    if (!isnan(candidateTemp)) temperatureC = candidateTemp;
-    if (!isnan(candidateHum)) humidityPct = candidateHum;
-    if (!isnan(candidatePressure)) pressureHpa = candidatePressure;
-  }
+void scanEnvironmentBlock(uint8_t* p, uint16_t start, uint16_t blockLen, uint16_t frameLen) {
+  // Kept because the prototype references it.
+  // scanTelemetry() now performs the direct loose scan.
 }
 
 // -----------------------------------------------------------------------------
