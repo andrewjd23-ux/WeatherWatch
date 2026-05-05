@@ -23,14 +23,27 @@ bool skipProtoValue(const uint8_t* p, uint16_t len, uint16_t& pos, uint8_t wireT
   uint32_t v = 0;
 
   switch (wireType) {
-    case 0: return readVarint(p, len, pos, v);
-    case 1: pos += 8; return true;
+    case 0:
+      return readVarint(p, len, pos, v);
+
+    case 1:
+      if (pos + 8 > len) return false;
+      pos += 8;
+      return true;
+
     case 2:
       if (!readVarint(p, len, pos, v)) return false;
+      if (pos + v > len) return false;
       pos += (uint16_t)v;
       return true;
-    case 5: pos += 4; return true;
-    default: return false;
+
+    case 5:
+      if (pos + 4 > len) return false;
+      pos += 4;
+      return true;
+
+    default:
+      return false;
   }
 }
 
