@@ -1,30 +1,34 @@
 // PART 3 — UI / DISPLAY (FINAL)
 
-// Only change vs previous:
-// Move mail icon to center of header
+// Updated header: centered title and cleaner mail icon placement
 
 void drawHeader(const char* title) {
   display.setTextSize(1);
 
   int centerX = 132; // midpoint of 264px width
 
+  // connection indicator on left
   display.setCursor(6, 12);
   display.print(meshConnected ? "*" : "!");
 
+  // center the title
   int titleWidth = strlen(title) * 6;
-  display.setCursor(centerX - titleWidth/2, 12);
+  int titleX = centerX - titleWidth / 2;
+  display.setCursor(titleX, 12);
   display.print(title);
 
-  // centered mail icon for messages page
+  // place mail icon just after the title, avoiding page number clash
   if (currentPage == 1) {
-    drawMailIcon(centerX + titleWidth/2 + 4, 4);
+    drawMailIcon(titleX + titleWidth + 6, 4);
   }
 
+  // page numbers on right
   display.setCursor(218, 12);
   display.print(currentPage + 1);
   display.print("/");
   display.print(PAGE_COUNT);
 
+  // underline
   display.drawLine(0, 22, 264, 22, GxEPD_BLACK);
 }
 
